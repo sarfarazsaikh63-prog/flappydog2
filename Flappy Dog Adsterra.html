@@ -1,0 +1,313 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Flappy Dog — With AdSense (Fixed)</title>
+<style>
+  body {
+    margin: 0;
+    background: #70c5ce;
+    font-family: Arial, sans-serif;
+    text-align: center;
+    overflow-x: hidden;
+  }
+
+  #gameCanvas {
+    display: block;
+    margin: 20px auto;
+    background: #8ee3ff;
+    border-radius: 10px;
+    box-shadow: 0 6px 20px rgba(0,0,0,0.2);
+  }
+
+  #startScreen, #gameOverScreen, #loadingScreen {
+    position: absolute;
+    left: 50%; top: 50%;
+    transform: translate(-50%, -50%);
+    background: rgba(0,0,0,0.65);
+    color: #fff;
+    padding: 20px 35px;
+    border-radius: 12px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+  }
+  #gameOverScreen { display: none; }
+
+  button {
+    padding: 12px 20px;
+    font-size: 18px;
+    border-radius: 8px;
+    border: none;
+    background: #ffd54f;
+    cursor: pointer;
+    margin-top: 10px;
+  }
+
+  #scoreDisplay {
+    position: absolute;
+    left: 15px;
+    top: 15px;
+    font-size: 26px;
+    color: white;
+    text-shadow: 0 2px 6px rgba(0,0,0,0.6);
+  }
+</style>
+</head>
+<body>
+
+<div id="loadingScreen">
+  <h2>Loading assets...</h2>
+  <p id="loadingText">0 / 4 images loaded</p>
+</div>
+
+<div id="startScreen" style="display:none">
+  <h1>Flappy Dog</h1>
+  <p>Tap / Click / Space to Flap</p>
+  <button id="startBtn" disabled>START</button>
+</div>
+
+<canvas id="gameCanvas" width="400" height="600"></canvas>
+
+<!-- ⭐ Google AdSense Banner Below Game ⭐ -->
+<script async src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-5216091575802638" crossorigin="anonymous"></script>
+<ins class="adsbygoogle" style="display:block;width:100%;height:90px;margin:auto" data-ad-client="ca-pub-5216091575802638" data-ad-slot="7322027524"></ins>
+<script>(adsbygoogle = window.adsbygoogle || []).push({});</script>
+<!-- ⭐ END ADSENSE ⭐ -->
+
+<div id="gameOverScreen">
+  <h2>Game Over</h2>
+  <p>Your Score: <span id="finalScore">0</span></p>
+  <button id="restartBtn">RESTART</button>
+</div>
+
+<div id="scoreDisplay">0</div>
+
+<!-- Sound Effects -->
+<audio id="startSound" src="assets/start.mp3"></audio>
+<audio id="gameOverSound" src="assets/gameover.mp3"></audio>
+<audio id="bgm" src="assets/bgm.mp3" loop></audio>
+
+<script>
+// Fixed: avoid drawImage on broken images by waiting for load and using fallbacks
+const canvas = document.getElementById("gameCanvas");
+const ctx = canvas.getContext("2d");
+const startBtn = document.getElementById("startBtn");
+const restartBtn = document.getElementById("restartBtn");
+const startScreen = document.getElementById("startScreen");
+const gameOverScreen = document.getElementById("gameOverScreen");
+const finalScore = document.getElementById("finalScore");
+const scoreDisplay = document.getElementById("scoreDisplay");
+const loadingScreen = document.getElementById('loadingScreen');
+const loadingText = document.getElementById('loadingText');
+
+// Image assets with robust loading
+const assets = {
+  bg: { src: 'assets/bg.png', img: new Image(), loaded: false, broken: false },
+  dog: { src: 'assets/dog.png', img: new Image(), loaded: false, broken: false },
+  pipeTop: { src: 'assets/pipe-top.png', img: new Image(), loaded: false, broken: false },
+  pipeBottom: { src: 'assets/pipe-bottom.png', img: new Image(), loaded: false, broken: false }
+};
+
+const totalImages = Object.keys(assets).length;
+let imagesLoaded = 0;
+
+function onAssetLoad(key) {
+  return function() {
+    assets[key].loaded = true;
+    imagesLoaded++;
+    loadingText.textContent = imagesLoaded + ' / ' + totalImages + ' images loaded';
+    checkAllAssetsReady();
+  };
+}
+function onAssetError(key) {
+  return function() {
+    assets[key].broken = true;
+    imagesLoaded++;
+    loadingText.textContent = imagesLoaded + ' / ' + totalImages + ' images loaded (some failed)';
+    console.warn(assets[key].src + ' failed to load — using fallback.');
+    checkAllAssetsReady();
+  };
+}
+
+// Attach handlers and start loading
+for (const k in assets) {
+  const a = assets[k];
+  a.img.onload = onAssetLoad(k);
+  a.img.onerror = onAssetError(k);
+  a.img.src = a.src;
+}
+
+function checkAllAssetsReady() {
+  if (imagesLoaded >= totalImages) {
+    // hide loading, show start
+    loadingScreen.style.display = 'none';
+    startScreen.style.display = 'block';
+    startBtn.disabled = false;
+  }
+}
+
+// Sounds
+const startSound = document.getElementById("startSound");
+const gameOverSound = document.getElementById("gameOverSound");
+const bgm = document.getElementById("bgm");
+bgm.volume = 0.4;
+
+// Game variables
+let dog = { x: 50, y: 200, w: 40, h: 40, gravity: 0, jump: -6 };
+let pipes = [];
+let score = 0;
+let frame = 0;
+let running = false;
+
+function resetGame() {
+  dog.y = 200;
+  dog.gravity = 0;
+  pipes = [];
+  score = 0;
+  frame = 0;
+  scoreDisplay.textContent = 0;
+  running = true;
+  try { bgm.currentTime = 0; bgm.play(); } catch(e) {}
+}
+
+function startGame() {
+  if (imagesLoaded < totalImages) {
+    alert('Assets still loading — please wait.');
+    return;
+  }
+
+  startScreen.style.display = "none";
+  gameOverScreen.style.display = "none";
+  try { startSound.currentTime = 0; startSound.play(); } catch(e) {}
+  resetGame();
+  requestAnimationFrame(loop);
+}
+
+function restartGame() { startGame(); }
+
+function flap() { if (!running) return; dog.gravity = dog.jump; }
+canvas.addEventListener("click", flap);
+window.addEventListener("keydown", e => { if (e.code === "Space") { e.preventDefault(); flap(); } });
+
+function safeDrawImage(assetKey, ...args) {
+  const a = assets[assetKey];
+  if (a && a.loaded && !a.broken && a.img.complete && a.img.naturalWidth !== 0) {
+    ctx.drawImage(a.img, ...args);
+    return true;
+  }
+  return false;
+}
+
+function drawBackground() {
+  if (!safeDrawImage('bg', 0, 0, canvas.width, canvas.height)) {
+    // fallback background
+    ctx.fillStyle = '#87CEEB';
+    ctx.fillRect(0,0,canvas.width,canvas.height);
+  }
+}
+
+function drawDog() {
+  if (!safeDrawImage('dog', dog.x, dog.y, dog.w, dog.h)) {
+    // fallback rectangle
+    ctx.fillStyle = '#ffd54f';
+    ctx.fillRect(dog.x, dog.y, dog.w, dog.h);
+    ctx.fillStyle = '#111';
+    ctx.fillRect(dog.x + dog.w - 10, dog.y + 6, 6, 6);
+  }
+}
+
+function drawPipeTop(p) {
+  if (!safeDrawImage('pipeTop', p.x, 0, 70, p.top)) {
+    ctx.fillStyle = '#2e8b57';
+    ctx.fillRect(p.x, 0, 70, p.top);
+  }
+}
+function drawPipeBottom(p) {
+  if (!safeDrawImage('pipeBottom', p.x, p.bottom, 70, canvas.height - p.bottom)) {
+    ctx.fillStyle = '#2e8b57';
+    ctx.fillRect(p.x, p.bottom, 70, canvas.height - p.bottom);
+  }
+}
+
+function loop() {
+  if (!running) return;
+
+  drawBackground();
+
+  dog.gravity += 0.3;
+  dog.y += dog.gravity;
+
+  drawDog();
+
+  if (frame % 100 === 0) {
+    let topHeight = Math.random() * 200 + 60;
+    let gap = 180;
+    pipes.push({ x: canvas.width, top: topHeight, bottom: topHeight + gap, scored: false });
+  }
+
+  for (let i = pipes.length - 1; i >= 0; i--) {
+    const p = pipes[i];
+    p.x -= 2;
+
+    drawPipeTop(p);
+    drawPipeBottom(p);
+
+    if (p.x + 70 < 0) pipes.splice(i, 1);
+
+    if (p.x + 70 < dog.x && !p.scored) {
+      p.scored = true;
+      score++;
+      scoreDisplay.textContent = score;
+    }
+
+    if (dog.x < p.x + 70 && dog.x + dog.w > p.x && (dog.y < p.top || dog.y + dog.h > p.bottom)) {
+      endGame();
+      return;
+    }
+  }
+
+  if (dog.y <= 0 || dog.y + dog.h >= canvas.height) { endGame(); return; }
+
+  frame++;
+  requestAnimationFrame(loop);
+}
+
+function endGame() {
+  running = false;
+  try { bgm.pause(); } catch(e) {}
+  try { gameOverSound.currentTime = 0; gameOverSound.play(); } catch(e) {}
+  finalScore.textContent = score;
+  gameOverScreen.style.display = 'block';
+}
+
+// Bind UI
+startBtn.addEventListener('click', startGame);
+restartBtn.addEventListener('click', restartGame);
+
+// Expose for debugging (optional)
+window.startGame = startGame;
+window.restartGame = restartGame;
+window.flap = flap;
+
+// Initial canvas draw while loading
+ctx.fillStyle = '#87CEEB'; ctx.fillRect(0,0,canvas.width,canvas.height);
+ctx.fillStyle = '#fff'; ctx.font = '18px Arial'; ctx.fillText('Loading assets... please wait', 90, 300);
+</script>
+<!-- Adsterra Banner 320x50 -->
+<div style="position:fixed; bottom:0; left:50%; transform:translateX(-50%); z-index:999;">
+<script type="text/javascript">
+	atOptions = {
+		'key' : '6e168f57b54ffadeffc3b9e5da3afd30',
+		'format' : 'iframe',
+		'height' : 50,
+		'width' : 320,
+		'params' : {}
+	};
+</script>
+<script type="text/javascript" src="//www.highperformanceformat.com/6e168f57b54ffadeffc3b9e5da3afd30/invoke.js"></script>
+</div>
+
+</body>
+</html>
